@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Genera dist/elohim.php: un unico file PHP standalone da copiare via FTP su qualsiasi hosting,
+# insieme a un elohim.txt con l'elenco dei nodi (un URL per riga).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+out=dist/elohim.php
+mkdir -p dist
+
+{
+  echo '<?php'
+  echo "/* Elohim node — build $(date -u +%Y-%m-%dT%H:%M:%SZ) ($(git rev-parse --short HEAD 2>/dev/null || echo dev))"
+  echo ' * File generato da ./build a partire da src/. Non modificare a mano.'
+  echo ' * Installazione: copia elohim.php ed elohim.txt nella stessa cartella dell'"'"'hosting. */'
+  echo
+  sed '1{/^<?php/d}' src/Basic.php
+  echo
+  sed -e '1{/^<?php/d}' -e "/^require __DIR__ . '\/Basic.php';/d" src/node.php
+} > "$out"
+
+if command -v php >/dev/null; then
+  php -l "$out" >/dev/null
+else
+  docker run --rm -v "$PWD/dist:/d:ro" php:8.3-cli php -l /d/elohim.php >/dev/null
+fi
+
+[ -f dist/elohim.txt ] || cp elohim.example.txt dist/elohim.txt
+echo "built $out ($(wc -c < "$out") bytes)"

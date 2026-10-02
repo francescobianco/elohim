@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Client Elohim minimale.
+#   ./elohim run <program.bas> [input...]   avvia una macchina (S0) su un nodo
+#   ./elohim logs                           segue l'esecuzione sui tre nodi
+#   ./elohim nodes                          elenca i nodi
+set -euo pipefail
+
+NODE="${ELOHIM_NODE:-http://localhost:7081/elohim.php}"
+
+case "${1:-}" in
+  run)
+    file="${2:?uso: ./elohim run <program.bas> [input...]}"
+    shift 2
+    payload=$(python3 - "$file" "$@" <<'PY'
+import json, sys
+print(json.dumps({"boot": {"source": open(sys.argv[1]).read(), "inputs": sys.argv[2:]}}))
+PY
+)
+    curl -sS -X POST "$NODE" -H 'Content-Type: application/json' -d "$payload"
+    echo
+    ;;
+  logs)
+    docker compose logs -f --no-log-prefix node-a node-b node-c 2>&1 | sed -nu 's/^.*\[php:notice\].*\[client [^]]*\] //p'
+    ;;
+  nodes)
+    for p in 7081 7082 7083; do curl -sS "http://localhost:$p/elohim.php"; echo; done
+    ;;
+  *)
+    sed -n '2,5p' "$0"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,20 @@
+# Tre "hosting PHP" stateless che ospitano soltanto dist/elohim.php + elohim.txt,
+# esattamente come se fossero stati caricati via FTP. Eseguire prima ./build.
+# La macchina virtuale non vive in nessuno di essi: si propaga A → B → C → A.
+x-node: &node
+  image: php:8.3-apache
+  restart: unless-stopped
+  volumes:
+    - ./dist/elohim.php:/var/www/html/elohim.php:ro
+    - ./docker/elohim.txt:/var/www/html/elohim.txt:ro
+
+services:
+  node-a:
+    <<: *node
+    ports: ["7081:80"]
+  node-b:
+    <<: *node
+    ports: ["7082:80"]
+  node-c:
+    <<: *node
+    ports: ["7083:80"]

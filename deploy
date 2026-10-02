@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Upload multi-host di Elohim via FTP (lftp).
+#
+#   ./deploy list               elenca gli host configurati in hosts/*.env
+#   ./deploy ring               genera dist/elohim.txt con gli URL di tutti gli host
+#   ./deploy push [host...]     build + ring + upload di elohim.php ed elohim.txt (default: tutti)
+#   ./deploy check [host...]    GET elohim.php su ogni host: verifica che risponda e sia nel ring
+#
+# Ogni host è un file hosts/<nome>.env (vedi hosts/example.env.dist), ignorato da git.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+HOSTS_DIR=hosts
+
+die() { echo "❌ $*" >&2; exit 1; }
+
+# nomi degli host richiesti, o tutti
+hosts() {
+  if [ $# -gt 0 ]; then
+    for h in "$@"; do [ -f "$HOSTS_DIR/$h.env" ] || die "host sconosciuto: $h"; echo "$h"; done
+  else
+    for f in "$HOSTS_DIR"/*.env; do [ -f "$f" ] && basename "$f" .env; done
+  fi
+}
+
+# legge la configurazione di un host in variabili locali alla subshell chiamante
+load() {
+  FTP_HOST= FTP_USER= FTP_PASS= FTP_DIR= URL= FTP_SSL_VERIFY=false
+  # shellcheck disable=SC1090
+  . "$HOSTS_DIR/$1.env"
+  for v in FTP_HOST FTP_USER FTP_PASS FTP_DIR URL; do
+    [ -n "${!v}" ] || die "$1: $v mancante in $HOSTS_DIR/$1.env"
+  done
+}
+
+cmd_list() {
+  for h in $(hosts "$@"); do
+    ( load "$h"; printf '%-16s %-28s %-28s %s\n' "$h" "$FTP_HOST" "$FTP_DIR" "$URL" )
+  done
+}
+
+cmd_ring() {
+  local all
+  all=$(hosts)
+  [ -n "$all" ] || die "nessun host in $HOSTS_DIR/ (vedi $HOSTS_DIR/example.env.dist)"
+  mkdir -p dist
+  {
+    echo "# generato da ./deploy ring — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    for h in $all; do ( load "$h"; echo "$URL" ); done
+  } > dist/elohim.txt
+  echo "🔗 dist/elohim.txt: $(grep -vc '^#' dist/elohim.txt) host"
+}
+
+cmd_push() {
+  ./build
+  cmd_ring
+  local failed=0
+  for h in $(hosts "$@"); do
+    echo "🚀 $h"
+    if ! (
+      load "$h"
+      # la password passa via ambiente, non sulla riga di comando
+      export LFTP_PASSWORD="$FTP_PASS"
+      lftp -c "
+        set ssl:verify-certificate $FTP_SSL_VERIFY
+        set net:max-retries 2
+        set net:timeout 20
+        open --env-password -u '$FTP_USER' '$FTP_HOST'
+        mkdir -p -f '$FTP_DIR'
+        cd '$FTP_DIR'
+        put -O . dist/elohim.php
+        put -O . dist/elohim.txt
+      "
+    ); then
+      echo "   ⚠️  upload fallito su $h"
+      failed=1
+    fi
+  done
+  [ $failed -eq 0 ] && echo "✅ upload completato" || die "alcuni upload sono falliti"
+}
+
+cmd_check() {
+  for h in $(hosts "$@"); do
+    ( load "$h"
+      body=$(curl -sS -m 15 "$URL" 2>&1) || { printf '%-16s ❌ %s\n' "$h" "$body"; exit 0; }
+      if grep -q '"says": "I can execute a quantum."' <<<"$body"; then
+        ring=$(grep -o '"in_ring": [a-z]*' <<<"$body" | cut -d' ' -f2)
+        printf '%-16s ✅ online  in_ring=%s  %s\n' "$h" "$ring" "$URL"
+      else
+        printf '%-16s ❌ risposta inattesa da %s: %.80s\n' "$h" "$URL" "$(tr -s '\n ' ' ' <<<"$body")"
+      fi
+    )
+  done
+}
+
+case "${1:-}" in
+  list|ring|push|check) c=$1; shift; "cmd_$c" "$@" ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

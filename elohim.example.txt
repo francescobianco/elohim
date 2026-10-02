@@ -1,0 +1,4 @@
+# Nodi Elohim: un URL per riga. Righe vuote e commenti (#) sono ignorati.
+# Se l'URL non termina con .php viene aggiunto /elohim.php
+https://www.example.com/elohim.php
+https://altro-hosting.it/elohim/

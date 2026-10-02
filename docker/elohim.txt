@@ -1,0 +1,4 @@
+# Ring dei nodi locali (docker compose): sono i nomi dei container sulla rete interna.
+http://node-a/elohim.php
+http://node-b/elohim.php
+http://node-c/elohim.php
